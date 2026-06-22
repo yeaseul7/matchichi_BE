@@ -8,6 +8,7 @@ import {PINECONE_INDEX_NAME} from "../shared/imageEmbedding.js";
 
 const PINECONE_LIST_PAGE_SIZE = 99;
 const PINECONE_DELETE_BATCH_SIZE = 1000;
+const LOG_ID_SAMPLE_SIZE = 10;
 
 export interface CleanupPineconeEmbeddingsOptions {
   dryRun?: boolean;
@@ -26,10 +27,12 @@ export interface CleanupPineconeEmbeddingsResult {
 /**
  * 공공데이터 API 전체 페이지를 순회해 현재 유효한 Pinecone record id 목록 생성
  * @param {string} serviceKey 공공데이터 API 키
+ * @param {string} runId 실행 로그 추적 ID
  * @return {Promise<object>} API row 수와 현재 id set
  */
 async function fetchCurrentAnimalIds(
-  serviceKey: string
+  serviceKey: string,
+  runId: string
 ): Promise<{apiRows: number; ids: Set<string>}> {
   const ids = new Set<string>();
   let apiRows = 0;
@@ -43,8 +46,17 @@ async function fetchCurrentAnimalIds(
       SHELTER_API_PAGE_SIZE
     );
     const {itemList, totalCount} = parseShelterItemList(data);
+    const resultCode = data.response?.header?.resultCode ?? "unknown";
+    const resultMsg = data.response?.header?.resultMsg ?? "unknown";
     apiRows += itemList.length;
     totalPages = Math.max(1, Math.ceil(totalCount / SHELTER_API_PAGE_SIZE));
+
+    console.info(
+      `[${runId}] Pinecone 정리 기준 API 응답: ` +
+        `page ${pageNo}/${totalPages}, resultCode ${resultCode}, ` +
+        `resultMsg ${resultMsg}, totalCount ${totalCount}, ` +
+        `pageRows ${itemList.length}`
+    );
 
     for (const item of itemList) {
       const desertionNo = String(item.desertionNo ?? "").trim();
@@ -54,7 +66,7 @@ async function fetchCurrentAnimalIds(
     }
 
     console.info(
-      `Pinecone 정리 기준 API 조회: page ${pageNo}/${totalPages}, ` +
+      `[${runId}] Pinecone 정리 기준 API 조회: page ${pageNo}/${totalPages}, ` +
         `누적 id ${ids.size}건`
     );
     pageNo++;
@@ -66,9 +78,13 @@ async function fetchCurrentAnimalIds(
 /**
  * Pinecone 인덱스의 전체 record id 목록 조회
  * @param {string} pineconeApiKey Pinecone API 키
+ * @param {string} runId 실행 로그 추적 ID
  * @return {Promise<string[]>} Pinecone record id 목록
  */
-async function listPineconeIds(pineconeApiKey: string): Promise<string[]> {
+async function listPineconeIds(
+  pineconeApiKey: string,
+  runId: string
+): Promise<string[]> {
   const pc = new Pinecone({apiKey: pineconeApiKey});
   const index = pc.index(PINECONE_INDEX_NAME);
   const ids: string[] = [];
@@ -83,7 +99,7 @@ async function listPineconeIds(pineconeApiKey: string): Promise<string[]> {
       if (vector.id) ids.push(vector.id);
     }
     paginationToken = response.pagination?.next;
-    console.info(`Pinecone id 조회 진행: 누적 ${ids.length}건`);
+    console.info(`[${runId}] Pinecone id 조회 진행: 누적 ${ids.length}건`);
   } while (paginationToken);
 
   return ids;
@@ -101,10 +117,34 @@ export async function cleanupPineconeEmbeddings(
   pineconeApiKey: string,
   options: CleanupPineconeEmbeddingsOptions = {}
 ): Promise<CleanupPineconeEmbeddingsResult> {
+  const runId = `pinecone-cleanup-${Date.now()}`;
+  const startedAt = Date.now();
   const dryRun = options.dryRun ?? false;
-  const current = await fetchCurrentAnimalIds(serviceKey);
-  const pineconeIds = await listPineconeIds(pineconeApiKey);
+
+  console.info(
+    `[${runId}] Pinecone 정리 시작: index ${PINECONE_INDEX_NAME}, ` +
+      `dryRun ${dryRun}`
+  );
+
+  const current = await fetchCurrentAnimalIds(serviceKey, runId);
+  if (current.apiRows === 0 || current.ids.size === 0) {
+    console.error(
+      `[${runId}] Pinecone 정리 안전 차단: API rows ${current.apiRows}건, ` +
+        `API ids ${current.ids.size}건. 삭제를 실행하지 않습니다.`
+    );
+    throw new Error(
+      "공공데이터 API 유효 ID가 0건이므로 Pinecone 삭제를 중단했습니다."
+    );
+  }
+
+  const pineconeIds = await listPineconeIds(pineconeApiKey, runId);
   const staleIds = pineconeIds.filter((id) => !current.ids.has(id));
+
+  console.info(
+    `[${runId}] Pinecone 삭제 대상 계산: API ids ${current.ids.size}건, ` +
+      `Pinecone ids ${pineconeIds.length}건, stale ${staleIds.length}건, ` +
+      `stale sample ${JSON.stringify(staleIds.slice(0, LOG_ID_SAMPLE_SIZE))}`
+  );
 
   let deleted = 0;
   if (!dryRun && staleIds.length > 0) {
@@ -116,15 +156,17 @@ export async function cleanupPineconeEmbeddings(
       await index.deleteMany({ids});
       deleted += ids.length;
       console.info(
-        `Pinecone stale vector 삭제 진행: ${deleted}/${staleIds.length}`
+        `[${runId}] Pinecone stale vector 삭제 진행: ` +
+          `${deleted}/${staleIds.length}`
       );
     }
   }
 
   console.info(
-    `Pinecone 정리 완료: API ids ${current.ids.size}건, ` +
+    `[${runId}] Pinecone 정리 완료: API ids ${current.ids.size}건, ` +
       `Pinecone ids ${pineconeIds.length}건, stale ${staleIds.length}건, ` +
-      `deleted ${deleted}건, dryRun ${dryRun}`
+      `deleted ${deleted}건, dryRun ${dryRun}, ` +
+      `durationMs ${Date.now() - startedAt}`
   );
 
   return {
