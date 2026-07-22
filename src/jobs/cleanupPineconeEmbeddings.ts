@@ -5,13 +5,21 @@ import {
   SHELTER_API_PAGE_SIZE,
 } from "../shared/shelterAnimalApi.js";
 import {PINECONE_INDEX_NAME} from "../shared/imageEmbedding.js";
+import {
+  observeStaleCandidates,
+  withSyncLease,
+} from "../shared/syncSafety.js";
 
 const PINECONE_LIST_PAGE_SIZE = 99;
 const PINECONE_DELETE_BATCH_SIZE = 1000;
 const LOG_ID_SAMPLE_SIZE = 10;
+const MAX_STALE_RATIO = 0.25;
+const MAX_DELETE_COUNT = 500;
+const CLEANUP_JOB_NAME = "pinecone-maintenance";
 
 export interface CleanupPineconeEmbeddingsOptions {
   dryRun?: boolean;
+  allowLargeDelete?: boolean;
 }
 
 export interface CleanupPineconeEmbeddingsResult {
@@ -21,6 +29,7 @@ export interface CleanupPineconeEmbeddingsResult {
   apiIds: number;
   pineconeIds: number;
   staleIds: number;
+  eligibleStaleIds: number;
   deleted: number;
 }
 
@@ -112,14 +121,15 @@ async function listPineconeIds(
  * @param {CleanupPineconeEmbeddingsOptions} options 실행 옵션
  * @return {Promise<CleanupPineconeEmbeddingsResult>} 정리 결과
  */
-export async function cleanupPineconeEmbeddings(
+async function cleanupPineconeEmbeddingsCore(
   serviceKey: string,
   pineconeApiKey: string,
   options: CleanupPineconeEmbeddingsOptions = {}
 ): Promise<CleanupPineconeEmbeddingsResult> {
   const runId = `pinecone-cleanup-${Date.now()}`;
   const startedAt = Date.now();
-  const dryRun = options.dryRun ?? false;
+  const dryRun = options.dryRun ?? true;
+  const allowLargeDelete = options.allowLargeDelete ?? false;
 
   console.info(
     `[${runId}] Pinecone 정리 시작: index ${PINECONE_INDEX_NAME}, ` +
@@ -139,25 +149,53 @@ export async function cleanupPineconeEmbeddings(
 
   const pineconeIds = await listPineconeIds(pineconeApiKey, runId);
   const staleIds = pineconeIds.filter((id) => !current.ids.has(id));
+  const eligibleStaleIds = await observeStaleCandidates(
+    CLEANUP_JOB_NAME,
+    runId,
+    staleIds
+  );
+  const staleRatio = pineconeIds.length === 0 ?
+    0 :
+    eligibleStaleIds.length / pineconeIds.length;
 
   console.info(
     `[${runId}] Pinecone 삭제 대상 계산: API ids ${current.ids.size}건, ` +
       `Pinecone ids ${pineconeIds.length}건, stale ${staleIds.length}건, ` +
+      `2회 연속 stale ${eligibleStaleIds.length}건, ` +
       `stale sample ${JSON.stringify(staleIds.slice(0, LOG_ID_SAMPLE_SIZE))}`
   );
 
+  if (
+    !dryRun &&
+    (staleRatio > MAX_STALE_RATIO ||
+      eligibleStaleIds.length > MAX_DELETE_COUNT) &&
+    !allowLargeDelete
+  ) {
+    throw new Error(
+      "Pinecone 대량 삭제 안전 차단: eligible " +
+      `${eligibleStaleIds.length}/${pineconeIds.length} ` +
+      `(${(staleRatio * 100).toFixed(1)}%). ` +
+      `25% 또는 ${MAX_DELETE_COUNT}건 초과 삭제는 ` +
+      "allowLargeDelete=true가 필요합니다."
+    );
+  }
+
   let deleted = 0;
-  if (!dryRun && staleIds.length > 0) {
+  if (!dryRun && eligibleStaleIds.length > 0) {
     const pc = new Pinecone({apiKey: pineconeApiKey});
     const index = pc.index(PINECONE_INDEX_NAME);
 
-    for (let i = 0; i < staleIds.length; i += PINECONE_DELETE_BATCH_SIZE) {
-      const ids = staleIds.slice(i, i + PINECONE_DELETE_BATCH_SIZE);
+    for (
+      let i = 0;
+      i < eligibleStaleIds.length;
+      i += PINECONE_DELETE_BATCH_SIZE
+    ) {
+      const ids = eligibleStaleIds.slice(i, i + PINECONE_DELETE_BATCH_SIZE);
       await index.deleteMany({ids});
       deleted += ids.length;
       console.info(
         `[${runId}] Pinecone stale vector 삭제 진행: ` +
-          `${deleted}/${staleIds.length}`
+          `${deleted}/${eligibleStaleIds.length}`
       );
     }
   }
@@ -165,6 +203,7 @@ export async function cleanupPineconeEmbeddings(
   console.info(
     `[${runId}] Pinecone 정리 완료: API ids ${current.ids.size}건, ` +
       `Pinecone ids ${pineconeIds.length}건, stale ${staleIds.length}건, ` +
+      `eligible ${eligibleStaleIds.length}건, ` +
       `deleted ${deleted}건, dryRun ${dryRun}, ` +
       `durationMs ${Date.now() - startedAt}`
   );
@@ -176,6 +215,24 @@ export async function cleanupPineconeEmbeddings(
     apiIds: current.ids.size,
     pineconeIds: pineconeIds.length,
     staleIds: staleIds.length,
+    eligibleStaleIds: eligibleStaleIds.length,
     deleted,
   };
+}
+
+/**
+ * 분산 잠금이 적용된 Pinecone stale vector 정리
+ * @param {string} serviceKey 공공데이터 API 키
+ * @param {string} pineconeApiKey Pinecone API 키
+ * @param {CleanupPineconeEmbeddingsOptions} options 삭제 안전 옵션
+ * @return {Promise<CleanupPineconeEmbeddingsResult>} 정리 결과
+ */
+export async function cleanupPineconeEmbeddings(
+  serviceKey: string,
+  pineconeApiKey: string,
+  options: CleanupPineconeEmbeddingsOptions = {}
+): Promise<CleanupPineconeEmbeddingsResult> {
+  return withSyncLease(CLEANUP_JOB_NAME, () =>
+    cleanupPineconeEmbeddingsCore(serviceKey, pineconeApiKey, options)
+  );
 }

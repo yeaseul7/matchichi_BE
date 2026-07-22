@@ -49,7 +49,17 @@ app.use(express.json());
 function verifySchedulerRequest(req: Request, res: Response): boolean {
   const expected = process.env.SCHEDULER_HTTP_TOKEN ??
     process.env.SHELTER_BACKFILL_HTTP_TOKEN;
-  if (!expected) return true;
+  if (!expected) {
+    if (process.env.K_SERVICE || process.env.NODE_ENV === "production") {
+      console.error("Scheduler 인증 차단: 인증 토큰이 설정되지 않았습니다.");
+      res.status(503).json({
+        ok: false,
+        error: "Scheduler authentication is not configured",
+      });
+      return false;
+    }
+    return true;
+  }
 
   const auth = req.get("authorization") ?? "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ?
@@ -96,8 +106,8 @@ app.post("/api/sync", async (req: Request, res: Response) => {
 
   try {
     const serviceKey = getAnimalsOpenApiKey();
-    await runSync(serviceKey, pineconeApiKey);
-    res.status(200).json({ok: true});
+    const result = await runSync(serviceKey, pineconeApiKey);
+    res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("동물 프로필 벡터화 동기화 실패:", error);
@@ -105,11 +115,69 @@ app.post("/api/sync", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/backfill/pinecone", async (req: Request, res: Response) => {
+  if (!verifySchedulerRequest(req, res)) return;
+
+  const pineconeApiKey = process.env.PINECONE_API_KEY;
+  if (!pineconeApiKey) {
+    res.status(500).json({
+      ok: false,
+      error: "PINECONE_API_KEY 환경변수가 설정되지 않았습니다.",
+    });
+    return;
+  }
+
+  const pageStart = Number(req.query.pageStart ?? req.body?.pageStart ?? 1);
+  const pageCount = Number(req.query.pageCount ?? req.body?.pageCount ?? 1);
+  if (
+    !Number.isInteger(pageStart) ||
+    pageStart < 1 ||
+    !Number.isInteger(pageCount) ||
+    pageCount < 1 ||
+    pageCount > 5
+  ) {
+    res.status(400).json({
+      ok: false,
+      error: "pageStart는 1 이상, pageCount는 1~5 정수여야 합니다.",
+    });
+    return;
+  }
+
+  try {
+    const result = await runSync(
+      getAnimalsOpenApiKey(),
+      pineconeApiKey,
+      {pageStart, pageCount, todayOnly: false, skipExisting: true}
+    );
+    res.status(200).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Pinecone 전체 백필 실패:", error);
+    res.status(500).json({ok: false, error: message});
+  }
+});
+
 app.post("/api/sync/status", async (req: Request, res: Response) => {
   if (!verifySchedulerRequest(req, res)) return;
 
+  const requestedDelete =
+    req.query.deleteStale === "true" ||
+    req.body?.deleteStale === true ||
+    req.body?.deleteStale === "true";
+  const confirmDelete =
+    req.query.confirmDelete === "true" ||
+    req.body?.confirmDelete === true ||
+    req.body?.confirmDelete === "true";
+  const allowLargeDelete =
+    req.query.allowLargeDelete === "true" ||
+    req.body?.allowLargeDelete === true ||
+    req.body?.allowLargeDelete === "true";
+
   try {
-    const result = await syncShelterAnimalsStatus(getAnimalsOpenApiKey());
+    const result = await syncShelterAnimalsStatus(getAnimalsOpenApiKey(), {
+      deleteStale: requestedDelete && confirmDelete,
+      allowLargeDelete,
+    });
     res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -133,16 +201,25 @@ app.post("/api/sync/pinecone-cleanup", async (
     return;
   }
 
-  const dryRun =
-    req.query.dryRun === "true" ||
-    req.body?.dryRun === true ||
-    req.body?.dryRun === "true";
+  const requestedDelete =
+    req.query.dryRun === "false" ||
+    req.body?.dryRun === false ||
+    req.body?.dryRun === "false";
+  const confirmDelete =
+    req.query.confirmDelete === "true" ||
+    req.body?.confirmDelete === true ||
+    req.body?.confirmDelete === "true";
+  const allowLargeDelete =
+    req.query.allowLargeDelete === "true" ||
+    req.body?.allowLargeDelete === true ||
+    req.body?.allowLargeDelete === "true";
+  const dryRun = !(requestedDelete && confirmDelete);
 
   try {
     const result = await cleanupPineconeEmbeddings(
       getAnimalsOpenApiKey(),
       pineconeApiKey,
-      {dryRun}
+      {dryRun, allowLargeDelete}
     );
     res.status(200).json(result);
   } catch (error) {

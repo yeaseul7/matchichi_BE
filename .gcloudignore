@@ -1,0 +1,12 @@
+.gcloudignore
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*-service-account*.json
+*serviceAccount*.json
+dog-velog-*.json
+node_modules
+lib
+npm-debug.log*

@@ -14,3 +14,10 @@ functions/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+
+# Service account credentials
+*-service-account*.json
+*serviceAccount*.json
+dog-velog-*.json

@@ -12,15 +12,32 @@ import {
   SupabaseAnimalRow,
 } from "../shared/shelterAnimalSupabase.js";
 import {ShelterAnimalItem} from "../shared/types.js";
+import {
+  observeStaleCandidates,
+  withSyncLease,
+} from "../shared/syncSafety.js";
 
 export interface SyncShelterAnimalsStatusResult {
   ok: true;
+  deleteStale: boolean;
   apiRows: number;
+  existingRows: number;
+  staleRows: number;
+  eligibleStaleRows: number;
   upserted: number;
   updated: number;
   deleted: number;
   unchanged: number;
 }
+
+export interface SyncShelterAnimalsStatusOptions {
+  deleteStale?: boolean;
+  allowLargeDelete?: boolean;
+}
+
+const MAX_STALE_RATIO = 0.25;
+const MAX_DELETE_COUNT = 500;
+const STATUS_SYNC_JOB_NAME = "animal-status-sync";
 
 interface ExistingAnimalRow {
   id: string;
@@ -281,12 +298,23 @@ async function deleteStaleAnimals(ids: string[]): Promise<number> {
 /**
  * shelterAnimals 현재 API 기준으로 Supabase animals upsert/delete 동기화
  * @param {string} serviceKey 공공데이터 API 키
+ * @param {SyncShelterAnimalsStatusOptions} options 삭제 안전 옵션
  * @return {Promise<SyncShelterAnimalsStatusResult>} 동기화 결과
  */
-export async function syncShelterAnimalsStatus(
-  serviceKey: string
+async function syncShelterAnimalsStatusCore(
+  serviceKey: string,
+  options: SyncShelterAnimalsStatusOptions = {}
 ): Promise<SyncShelterAnimalsStatusResult> {
+  const deleteStale = options.deleteStale ?? false;
+  const allowLargeDelete = options.allowLargeDelete ?? false;
+  const runId = `animal-status-sync-${Date.now()}`;
   const current = await fetchCurrentAnimalsMap(serviceKey);
+  if (current.itemList.length === 0 || current.stateMap.size === 0) {
+    throw new Error(
+      "공공데이터 API 유효 동물이 0건이므로 animals 동기화를 중단했습니다."
+    );
+  }
+
   const existingRows = await listExistingAnimals();
   const validShelterRegNos = await listExistingShelterRegNos();
   const existingMap = new Map(
@@ -314,22 +342,68 @@ export async function syncShelterAnimalsStatus(
   const staleIds = existingRows
     .filter((row) => !current.stateMap.has(row.desertion_no))
     .map((row) => row.id);
+  const eligibleStaleIds = await observeStaleCandidates(
+    STATUS_SYNC_JOB_NAME,
+    runId,
+    staleIds
+  );
+
+  const staleRatio = existingRows.length === 0 ?
+    0 :
+    eligibleStaleIds.length / existingRows.length;
+  if (
+    deleteStale &&
+    (staleRatio > MAX_STALE_RATIO ||
+      eligibleStaleIds.length > MAX_DELETE_COUNT) &&
+    !allowLargeDelete
+  ) {
+    throw new Error(
+      "Supabase 대량 삭제 안전 차단: eligible " +
+      `${eligibleStaleIds.length}/` +
+      `${existingRows.length} (${(staleRatio * 100).toFixed(1)}%). ` +
+      `25% 또는 ${MAX_DELETE_COUNT}건 초과 삭제는 ` +
+      "allowLargeDelete=true가 필요합니다."
+    );
+  }
 
   const upserted = await upsertAnimals(current.itemList, validShelterRegNos);
-  const deleted = await deleteStaleAnimals(staleIds);
+  const deleted = deleteStale ?
+    await deleteStaleAnimals(eligibleStaleIds) :
+    0;
 
   console.info(
     `animals 동기화 완료: API ${current.stateMap.size}건, ` +
       `upsert ${upserted}건, 업데이트 ${updated}건, ` +
-      `삭제 ${deleted}건, 변경없음 ${unchanged}건`
+      `stale ${staleIds.length}건, 2회 연속 stale ` +
+      `${eligibleStaleIds.length}건, 삭제 ${deleted}건, ` +
+      `deleteStale ${deleteStale}, 변경없음 ${unchanged}건`
   );
 
   return {
     ok: true,
+    deleteStale,
     apiRows: current.stateMap.size,
+    existingRows: existingRows.length,
+    staleRows: staleIds.length,
+    eligibleStaleRows: eligibleStaleIds.length,
     upserted,
     updated,
     deleted,
     unchanged,
   };
+}
+
+/**
+ * 분산 잠금이 적용된 shelterAnimals 상태 동기화
+ * @param {string} serviceKey 공공데이터 API 키
+ * @param {SyncShelterAnimalsStatusOptions} options 삭제 안전 옵션
+ * @return {Promise<SyncShelterAnimalsStatusResult>} 동기화 결과
+ */
+export async function syncShelterAnimalsStatus(
+  serviceKey: string,
+  options: SyncShelterAnimalsStatusOptions = {}
+): Promise<SyncShelterAnimalsStatusResult> {
+  return withSyncLease(STATUS_SYNC_JOB_NAME, () =>
+    syncShelterAnimalsStatusCore(serviceKey, options)
+  );
 }
