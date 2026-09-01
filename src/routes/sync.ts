@@ -12,7 +12,10 @@ import {runSync} from "../shared/syncAnimalEmbeddingsCore.js";
 // eslint-disable-next-line new-cap
 export const syncRouter = Router();
 
-syncRouter.use(verifySchedulerRequest);
+syncRouter.use(
+  ["/api/sync", "/api/backfill"],
+  verifySchedulerRequest
+);
 
 syncRouter.post("/api/sync", async (_req, res) => {
   try {
