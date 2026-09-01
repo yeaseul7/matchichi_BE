@@ -22,7 +22,6 @@
 - Pinecone
 - Hugging Face Transformers (`Xenova/dinov2-small`)
 - Firebase Admin SDK
-- Cloudinary SDK
 - Docker / Google Cloud Run
 
 ## 프로젝트 구조
@@ -30,8 +29,11 @@
 ```text
 .
 ├── src
-│   ├── api
-│   │   └── server.ts                  # HTTP API 서버
+│   ├── api/server.ts                  # 프로세스 진입점
+│   ├── app.ts                         # Express 앱 구성
+│   ├── config/env.ts                  # 환경변수 접근 및 검증
+│   ├── middleware                     # 인증, CORS, 오류 처리
+│   ├── routes                         # HTTP API 라우트
 │   ├── jobs
 │   │   ├── backfillShelterInfoToSupabase.ts
 │   │   ├── cleanupPineconeEmbeddings.ts
@@ -72,7 +74,11 @@ Pinecone에는 다음 설정의 인덱스가 필요합니다.
 
 ## 환경변수
 
-루트에 `.env` 파일을 생성합니다.
+`.env.example`을 복사해 루트에 `.env` 파일을 생성합니다.
+
+```bash
+cp .env.example .env
+```
 
 ```dotenv
 # 서버
