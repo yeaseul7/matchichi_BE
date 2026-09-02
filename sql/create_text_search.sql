@@ -23,12 +23,19 @@ before update of search_text on public.animals
 for each row
 execute function public.invalidate_animal_text_embedding();
 
+drop function if exists public.search_animals_by_text(
+  public.vector, integer, double precision, text, text
+);
+
 create or replace function public.search_animals_by_text(
   query_embedding public.vector(384),
   match_count integer default 24,
   minimum_similarity double precision default 0.25,
   species_filter text default null,
-  region_filter text default null
+  region_filter text default null,
+  breed_filter text default null,
+  minimum_age_filter integer default null,
+  maximum_age_filter integer default null
 )
 returns table (
   animal jsonb,
@@ -52,6 +59,21 @@ as $$
         or a.org_nm ilike '%' || region_filter || '%'
         or a.care_addr ilike '%' || region_filter || '%'
       )
+      and (
+        breed_filter is null
+        or a.kind_nm ilike '%' || breed_filter || '%'
+        or a.kind_full_nm ilike '%' || breed_filter || '%'
+      )
+      and (
+        minimum_age_filter is null
+        or extract(year from current_date)::integer
+          - substring(a.age from '([0-9]{4})')::integer >= minimum_age_filter
+      )
+      and (
+        maximum_age_filter is null
+        or extract(year from current_date)::integer
+          - substring(a.age from '([0-9]{4})')::integer <= maximum_age_filter
+      )
   )
   select
     to_jsonb(a) - 'text_embedding' as animal,
@@ -63,10 +85,10 @@ as $$
 $$;
 
 revoke all on function public.search_animals_by_text(
-  public.vector, integer, double precision, text, text
+  public.vector, integer, double precision, text, text, text, integer, integer
 ) from public, anon, authenticated;
 grant execute on function public.search_animals_by_text(
-  public.vector, integer, double precision, text, text
+  public.vector, integer, double precision, text, text, text, integer, integer
 ) to service_role;
 
 create or replace function public.save_animal_text_embeddings(p_rows jsonb)

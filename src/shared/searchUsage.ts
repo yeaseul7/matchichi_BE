@@ -27,7 +27,7 @@ export async function consumeTextSearchAllowance(
   }
 
   const authenticated = Boolean(userId);
-  const limit = authenticated ? 30 : 5;
+  const limit = authenticated ? 30 : 2;
   const rawIdentifier = userId ? `user:${userId}` : `ip:${req.ip}`;
   const identifier = createHash("sha256").update(rawIdentifier).digest("hex");
   const {data, error} = await supabase.rpc("consume_ai_search_usage", {
