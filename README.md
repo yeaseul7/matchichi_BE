@@ -9,6 +9,7 @@
 - 공공데이터에서 사라진 유기동물 데이터 정리
 - DINOv2 이미지 임베딩 생성 및 Pinecone 저장
 - 업로드 이미지 또는 이미지 URL 기반 유사 동물 검색
+- 다국어 E5 임베딩과 pgvector 기반 자연어 동물 검색
 - Supabase Storage 이미지 업로드
 - Firestore 게시판 데이터를 Supabase로 마이그레이션
 - Cloud Scheduler 호출용 토큰 인증
@@ -71,6 +72,10 @@ Pinecone에는 다음 설정의 인덱스가 필요합니다.
 | 인덱스 이름 | `embeded-animal` |
 | 벡터 차원 | `384` |
 | 임베딩 모델 | `Xenova/dinov2-small` |
+
+텍스트 검색은 `Xenova/multilingual-e5-small`의 384차원 임베딩을
+Supabase `animals.text_embedding`에 저장합니다. 최초 배포 전
+`sql/create_text_search.sql`을 Supabase SQL Editor에서 실행해야 합니다.
 
 ## 환경변수
 
@@ -278,6 +283,45 @@ curl -X POST http://localhost:8080/api/search/animals \
 
 파일 대신 `imageUrl`을 전달할 수 있습니다. `topK`는 1~50 범위이며 기본값은 10입니다.
 
+### 텍스트 임베딩 동기화
+
+```http
+POST /api/sync/text-embeddings
+Authorization: Bearer <SCHEDULER_HTTP_TOKEN>
+Content-Type: application/json
+```
+
+```json
+{"batchSize": 50}
+```
+
+임베딩이 없거나 원문 변경으로 무효화된 동물을 최대 100건씩 처리합니다.
+`remaining`이 0이 될 때까지 재호출하면 기존 데이터 백필이 완료됩니다.
+
+### 자연어 동물 검색
+
+```http
+POST /api/search/text
+Content-Type: application/json
+```
+
+```json
+{
+  "query": "서울에서 사람을 잘 따르는 어린 흰색 강아지",
+  "limit": 24
+}
+```
+
+검색어는 최대 300자, 결과는 최대 50건입니다. Supabase JWT가 있는 사용자는
+하루 30회, 비로그인 사용자는 IP 기준 하루 5회로 제한합니다.
+
+50개 기준 검색 문장 평가는 백필 후 실행합니다.
+
+```bash
+npm run build
+npm run evaluate:text-search
+```
+
 ## Firestore 게시판 마이그레이션
 
 Firestore의 아래 구조를 Supabase로 이전합니다.
@@ -316,7 +360,9 @@ docker build -t kkosunnae-backend .
 docker run --rm -p 8080:8080 --env-file .env kkosunnae-backend
 ```
 
-Docker 빌드 과정에서 DINOv2 모델을 미리 내려받아 Cloud Run cold start 시 모델 다운로드를 줄입니다. 런타임 이미지는 non-root `node` 사용자로 실행됩니다.
+Docker 빌드 과정에서 DINOv2와 양자화된 multilingual-e5-small 모델을 미리
+내려받아 Cloud Run cold start 시 다운로드를 줄입니다. 런타임 이미지는
+non-root `node` 사용자로 실행됩니다.
 
 Cloud Scheduler에서는 보호할 엔드포인트에 `POST` 요청을 보내고 `Authorization: Bearer <SCHEDULER_HTTP_TOKEN>` 헤더를 설정합니다. Cloud Run 또는 production 환경에서 인증 토큰이 누락되면 Scheduler용 API는 `503`으로 차단됩니다.
 
@@ -337,6 +383,9 @@ sql/create_sync_safety.sql
                                           │
 사용자 이미지 ──> DINOv2 이미지 임베딩 ──┘ 유사도 검색
 
+공공데이터 ──> multilingual-e5-small ──> Supabase pgvector
+사용자 문장 ──> multilingual-e5-small ──┘ 의미 검색
+
 사용자/외부 이미지 ──> Supabase Storage
 Firestore boards ──> Supabase posts / comments / likes
 ```
@@ -348,4 +397,3 @@ Firestore boards ──> Supabase posts / comments / likes
 - Supabase와 Pinecone 모두 2회 연속 stale인 항목만 삭제하며, 25% 또는 500건 초과 삭제를 기본 차단합니다.
 - `SUPABASE_SERVICE_ROLE_KEY`를 사용하는 API는 신뢰된 서버 환경에서만 노출해야 합니다.
 - 현재 이미지 업로드와 유사 검색 API에는 사용자 인증이 없으므로 공개 배포 시 API Gateway, IAM 또는 별도 인증 계층이 필요합니다.
-- `CLOUDINARY_URL` 관련 유틸리티는 포함되어 있지만 현재 HTTP API의 이미지 업로드는 Supabase Storage를 사용합니다.

@@ -21,6 +21,9 @@ RUN npm run build
 # Preload the image embedding model so Cloud Run does not download it on cold start.
 RUN node --input-type=module -e "import {pipeline} from '@huggingface/transformers'; await pipeline('image-feature-extraction', 'Xenova/dinov2-small');"
 
+# Preload the multilingual text embedding model used by semantic search.
+RUN node --input-type=module -e "import {pipeline} from '@huggingface/transformers'; await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', {dtype: 'q8'});"
+
 RUN npm prune --omit=dev
 
 FROM node:24-bookworm-slim

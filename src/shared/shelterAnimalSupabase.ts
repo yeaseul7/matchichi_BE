@@ -1,4 +1,5 @@
 import {createClient} from "@supabase/supabase-js";
+import {buildAnimalSearchText} from "./textEmbedding.js";
 import {ShelterAnimalItem} from "./types.js";
 
 export const SUPABASE_ANIMALS_TABLE =
@@ -66,6 +67,7 @@ export interface SupabaseAnimalRow {
   happen_place: string | null;
   special_mark: string | null;
   popfiles: string[] | null;
+  search_text: string;
   updated_at: string;
 }
 
@@ -205,7 +207,7 @@ export function mapShelterAnimalToSupabaseRow(
   const desertionNo = toNullableTrimmedString(item.desertionNo);
   if (!desertionNo) return null;
 
-  return {
+  const row = {
     id: createDeterministicUuid(desertionNo),
     desertion_no: desertionNo,
     care_reg_no: toNullableTrimmedString(item.careRegNo),
@@ -271,5 +273,10 @@ export function mapShelterAnimalToSupabaseRow(
     special_mark: toNullableTrimmedString(item.specialMark),
     popfiles: getPopfiles(item),
     updated_at: new Date().toISOString(),
+  };
+
+  return {
+    ...row,
+    search_text: buildAnimalSearchText(row),
   };
 }

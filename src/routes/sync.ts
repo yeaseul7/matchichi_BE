@@ -6,6 +6,9 @@ import {
 } from "../jobs/backfillShelterInfoToSupabase.js";
 import {cleanupPineconeEmbeddings} from "../jobs/cleanupPineconeEmbeddings.js";
 import {syncShelterAnimalsStatus} from "../jobs/syncShelterAnimalsStatus.js";
+import {
+  syncAnimalTextEmbeddings,
+} from "../jobs/syncAnimalTextEmbeddings.js";
 import {verifySchedulerRequest} from "../middleware/schedulerAuth.js";
 import {runSync} from "../shared/syncAnimalEmbeddingsCore.js";
 
@@ -111,6 +114,28 @@ syncRouter.post("/api/backfill/shelters", async (_req, res) => {
     res.status(200).json(result);
   } catch (error) {
     handleError(res, "보호소 백필 실패", error);
+  }
+});
+
+syncRouter.post("/api/sync/text-embeddings", async (req, res) => {
+  const requestedBatchSize = Number(req.body?.batchSize ?? 50);
+  if (
+    !Number.isInteger(requestedBatchSize) ||
+    requestedBatchSize < 1 ||
+    requestedBatchSize > 100
+  ) {
+    res.status(400).json({
+      ok: false,
+      error: "batchSize는 1~100 정수여야 합니다.",
+    });
+    return;
+  }
+
+  try {
+    const result = await syncAnimalTextEmbeddings(requestedBatchSize);
+    res.status(200).json(result);
+  } catch (error) {
+    handleError(res, "텍스트 임베딩 동기화 실패", error);
   }
 });
 

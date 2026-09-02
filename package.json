@@ -6,7 +6,8 @@
     "build:watch": "tsc --watch",
     "start": "node lib/api/server.js",
     "start:cloudrun": "node lib/api/server.js",
-    "migrate:boards": "node lib/scripts/runMigrateBoardsToSupabase.js"
+    "migrate:boards": "node lib/scripts/runMigrateBoardsToSupabase.js",
+    "evaluate:text-search": "node lib/scripts/evaluateTextSearch.js"
   },
   "engines": {
     "node": "24"
