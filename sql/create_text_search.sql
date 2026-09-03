@@ -39,6 +39,9 @@ execute function public.invalidate_animal_text_embedding();
 drop function if exists public.search_animals_by_text(
   public.vector, integer, double precision, text, text
 );
+drop function if exists public.search_animals_by_text(
+  public.vector, integer, double precision, text, text, text, integer, integer
+);
 
 create or replace function public.search_animals_by_text(
   query_embedding public.vector(384),
@@ -47,12 +50,15 @@ create or replace function public.search_animals_by_text(
   species_filter text default null,
   region_filter text default null,
   breed_filter text default null,
+  color_filter text default null,
   minimum_age_filter integer default null,
   maximum_age_filter integer default null
 )
 returns table (
   animal jsonb,
-  similarity double precision
+  similarity double precision,
+  semantic_similarity double precision,
+  color_score double precision
 )
 language sql
 stable
@@ -88,20 +94,51 @@ as $$
           - substring(a.age from '([0-9]{4})')::integer <= maximum_age_filter
       )
   )
+  , scored_animals as (
+    select
+      a.*,
+      1 - (a.text_embedding <=> query_embedding) as semantic_score,
+      case
+        when color_filter is null then 0.0
+        when color_filter = '흰색' and
+          regexp_replace(lower(coalesce(a.color_cd, '')), '\s', '', 'g') ~
+            '^(흰색|백색|기타\((흰색|백)\))$'
+          then 1.0
+        when color_filter = '흰색' and
+          regexp_replace(lower(coalesce(a.color_cd, '')), '\s', '', 'g') ~
+            '^(기타\()?((흰|백))'
+          then 0.8
+        when color_filter = '흰색' and coalesce(a.color_cd, '') ~ '(흰|백)'
+          then 0.55
+        when color_filter = '흰색' and coalesce(a.color_cd, '') ~ '(아이보리|크림)'
+          then 0.3
+        else 0.0
+      end::double precision as matched_color_score
+    from filtered_animals a
+  )
   select
-    to_jsonb(a) - 'text_embedding' as animal,
-    1 - (a.text_embedding <=> query_embedding) as similarity
-  from filtered_animals a
-  where 1 - (a.text_embedding <=> query_embedding) >= minimum_similarity
-  order by a.text_embedding <=> query_embedding
+    to_jsonb(a) - 'text_embedding' - 'semantic_score' - 'matched_color_score'
+      as animal,
+    case
+      when color_filter is null then a.semantic_score
+      else a.semantic_score * 0.45 + a.matched_color_score * 0.55
+    end as similarity,
+    a.semantic_score as semantic_similarity,
+    a.matched_color_score as color_score
+  from scored_animals a
+  where a.semantic_score >= minimum_similarity
+    or (color_filter is not null and a.matched_color_score > 0)
+  order by similarity desc
   limit least(greatest(match_count, 1), 50);
 $$;
 
 revoke all on function public.search_animals_by_text(
-  public.vector, integer, double precision, text, text, text, integer, integer
+  public.vector, integer, double precision, text, text, text, text, integer,
+  integer
 ) from public, anon, authenticated;
 grant execute on function public.search_animals_by_text(
-  public.vector, integer, double precision, text, text, text, integer, integer
+  public.vector, integer, double precision, text, text, text, text, integer,
+  integer
 ) to service_role;
 
 create or replace function public.save_animal_text_embeddings(p_rows jsonb)

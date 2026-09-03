@@ -33,6 +33,7 @@ export interface TextSearchFilters {
   species: "개" | "고양이" | null;
   region: string | null;
   breed: string | null;
+  color: "흰색" | null;
   minimumAge: number | null;
   maximumAge: number | null;
 }
@@ -43,7 +44,12 @@ export interface TextAnimalSearchResult {
   semanticQuery: string;
   filters: TextSearchFilters;
   limit: number;
-  matches: Array<{animal: Record<string, unknown>; similarity: number}>;
+  matches: Array<{
+    animal: Record<string, unknown>;
+    similarity: number;
+    semantic_similarity: number;
+    color_score: number;
+  }>;
 }
 
 /**
@@ -62,6 +68,7 @@ export function extractTextSearchFilters(query: string): TextSearchFilters {
     species,
     region,
     breed: breedMatch?.canonical ?? null,
+    color: extractColor(query),
     minimumAge: ages.minimumAge,
     maximumAge: ages.maximumAge,
   };
@@ -80,6 +87,7 @@ export function buildSemanticQuery(query: string): string {
   semanticQuery = semanticQuery
     .replace(/\d{1,2}\s*(?:살|세)\s*(?:이하|미만|이상)?/g, " ")
     .replace(/애기|아기|어린|새끼|노령|노견|노묘/g, " ")
+    .replace(/하얀|하얗(?:고|게|다)?|흰색|흰|백색/g, " ")
     .replace(/고양이|냥이|고양잇과|강아지|강쥐|댕댕이|멍멍이|반려견|견종/g, " ");
 
   for (const region of REGIONS) {
@@ -92,6 +100,15 @@ export function buildSemanticQuery(query: string): string {
     .filter((word) => !stopWords.has(word))
     .join(" ");
   return semanticQuery || query;
+}
+
+/**
+ * 검색어에서 명확한 색상 선호를 추출합니다.
+ * @param {string} query 사용자 검색어
+ * @return {"흰색" | null} 정규화된 색상
+ */
+function extractColor(query: string): "흰색" | null {
+  return /하얀|하얗(?:고|게|다)?|흰색|흰|백색/.test(query) ? "흰색" : null;
 }
 
 /**
@@ -155,6 +172,7 @@ export async function searchAnimalsByText(
     species_filter: filters.species,
     region_filter: filters.region,
     breed_filter: filters.breed,
+    color_filter: filters.color,
     minimum_age_filter: filters.minimumAge,
     maximum_age_filter: filters.maximumAge,
   } as never);
@@ -172,6 +190,8 @@ export async function searchAnimalsByText(
     matches: (data ?? []) as Array<{
       animal: Record<string, unknown>;
       similarity: number;
+      semantic_similarity: number;
+      color_score: number;
     }>,
   };
 }
