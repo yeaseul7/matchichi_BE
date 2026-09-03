@@ -5,6 +5,9 @@ export const ABANDONMENT_API_BASE_URL =
 
 /** 공공 API 페이지당 행 수(상한 500) */
 export const SHELTER_API_PAGE_SIZE = 500;
+const API_REQUEST_TIMEOUT_MS = 20_000;
+const API_MAX_ATTEMPTS = 3;
+const API_RETRY_BASE_DELAY_MS = 2_000;
 
 /**
  * Asia/Seoul 기준 오늘 날짜를 YYYYMMDD로 반환
@@ -74,11 +77,70 @@ export async function fetchAbandonmentApiPage(
 
   const url =
     `${ABANDONMENT_API_BASE_URL}/abandonmentPublic_v2?${params.toString()}`;
-  const response = await fetch(url);
 
-  if (!response.ok) {
-    throw new Error(`API 오류: ${response.status} ${await response.text()}`);
+  for (let attempt = 1; attempt <= API_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.ok) {
+        return response.json() as Promise<AbandonmentApiResponse>;
+      }
+
+      const responseText = await response.text();
+      if (!isRetryableStatus(response.status) || attempt === API_MAX_ATTEMPTS) {
+        throw new Error(`API 오류: ${response.status} ${responseText}`);
+      }
+
+      console.warn(
+        `공공데이터 API 재시도 예정: page ${pageNo}, ` +
+          `status ${response.status}, attempt ${attempt}/${API_MAX_ATTEMPTS}`
+      );
+    } catch (error) {
+      if (!isRetryableFetchError(error) || attempt === API_MAX_ATTEMPTS) {
+        throw error;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `공공데이터 API 연결 재시도 예정: page ${pageNo}, ` +
+          `attempt ${attempt}/${API_MAX_ATTEMPTS}, error ${message}`
+      );
+    }
+
+    await delay(API_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
   }
 
-  return response.json() as Promise<AbandonmentApiResponse>;
+  throw new Error("공공데이터 API 재시도 횟수를 초과했습니다.");
+}
+
+/**
+ * HTTP 상태가 일시적 오류인지 확인합니다.
+ * @param {number} status HTTP 상태 코드
+ * @return {boolean} 재시도 가능 여부
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+/**
+ * fetch 예외가 네트워크 또는 타임아웃 오류인지 확인합니다.
+ * @param {unknown} error fetch 예외
+ * @return {boolean} 재시도 가능 여부
+ */
+function isRetryableFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.name === "AbortError" ||
+    error.name === "TimeoutError" ||
+    error instanceof TypeError;
+}
+
+/**
+ * 지정한 시간만큼 비동기로 대기합니다.
+ * @param {number} milliseconds 대기 시간
+ * @return {Promise<void>} 대기 완료
+ */
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

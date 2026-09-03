@@ -1,5 +1,18 @@
--- Requires the vector extension to be installed in the public schema and
--- animals.text_embedding to be public.vector(384).
+create extension if not exists vector with schema public;
+create extension if not exists pg_trgm with schema public;
+
+alter table public.animals
+  add column if not exists search_text text not null default '',
+  add column if not exists text_embedding public.vector(384),
+  add column if not exists text_embedding_hash text,
+  add column if not exists text_embedded_at timestamptz;
+
+create index if not exists animals_search_text_trgm_idx
+  on public.animals using gin (search_text gin_trgm_ops);
+
+create index if not exists animals_text_embedding_hnsw_idx
+  on public.animals using hnsw (text_embedding public.vector_cosine_ops)
+  where text_embedding is not null;
 
 create or replace function public.invalidate_animal_text_embedding()
 returns trigger
