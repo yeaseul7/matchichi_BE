@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-03",
+  "runtime": "Node v24.22.2 / macOS ARM64",
+  "cloudRun": {
+    "projectId": "dog-velog",
+    "projectNumber": "258374777454",
+    "region": "asia-northeast3",
+    "service": "kkosunnae-backend",
+    "canonicalUrl": "https://kkosunnae-backend-zah352j55q-du.a.run.app",
+    "memory": "4Gi",
+    "cpu": "2000m",
+    "requestConcurrency": 80,
+    "revision": "kkosunnae-backend-00034-zw5",
+    "trafficPercent": 100
+  },
+  "pinecone": {
+    "index": "embeded-animal",
+    "dimension": 384,
+    "metric": "cosine",
+    "vectorCount": 8073
+  },
+  "supabase": {
+    "animals": 33398,
+    "protectedDogs": 11055,
+    "protectedStateCode": "protect"
+  },
+  "evaluation": {
+    "model": "Xenova/dinov2-small",
+    "cases": 5,
+    "failures": 0,
+    "hitAt1": 0.8,
+    "hitAt5": 1,
+    "hitAt10": 1,
+    "recallAt10": 1,
+    "coldStartMs": 2212.0762909999994,
+    "warmP50Ms": 432.7548340000003,
+    "warmP95Ms": 467.9288749999996,
+    "peakRssMiB": 405.890625,
+    "querySource": "A different registered photo belonging to the same public animal record",
+    "identicalFileBytesExcluded": true,
+    "scope": "Five cases from one locality; not a representative accuracy benchmark",
+    "casesPublicIds": [
+      "450650202601799",
+      "450650202601800",
+      "450650202601801",
+      "450650202601802",
+      "450650202601803"
+    ]
+  },
+  "deployment": {
+    "status": "blocked-by-gcp-iam",
+    "missingPermissions": [
+      "iam.serviceAccounts.actAs",
+      "cloudbuild.builds.create"
+    ],
+    "runtimeServiceAccount": "258374777454-compute@developer.gserviceaccount.com",
+    "existingRevisionAndTrafficUnchanged": true
+  },
+  "cloudMonitoring": {
+    "status": "read-denied",
+    "httpStatus": 403
+  }
+}

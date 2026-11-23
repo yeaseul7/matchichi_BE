@@ -12,12 +12,14 @@ import {
 } from "./imageEmbedding.js";
 import {ShelterAnimalItem} from "./types.js";
 import {withSyncLease} from "./syncSafety.js";
+import {getAnimalImages} from "./animalImages.js";
+import {ImageRequestError} from "./imageLimits.js";
 
 const UPSERT_BATCH_SIZE = 100;
 const FETCH_BATCH_SIZE = 50;
 /** 청크 단위: 한 번에 벡터화할 개수 (공공 API·메모리 부담 완화) */
-const CHUNK_SIZE = 5;
-/** 청크 간 휴식 시간(ms). 공공기관 서버·메모리 안정용 */
+const CHUNK_SIZE = 1;
+/** 5장 처리 후 휴식 시간(ms). 공공기관 서버·메모리 안정용 */
 const DELAY_BETWEEN_CHUNKS_MS = 500;
 const EMBED_MAX_ATTEMPTS = 3;
 const PINECONE_JOB_NAME = "pinecone-maintenance";
@@ -65,6 +67,8 @@ async function embedImageWithRetry(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const permanentFailure =
+        (error instanceof ImageRequestError &&
+          [400, 413].includes(error.status)) ||
         message.includes("404") ||
         message.includes("400") ||
         message.includes("Invalid image");
@@ -79,19 +83,6 @@ async function embedImageWithRetry(
   }
 
   return null;
-}
-
-/**
- * 공공데이터 API에서 popfile(첫 번째 이미지) URL만 추출
- * popfile1(popfile)만 조회, popfile2/popfile3 등 제외
- * @param {ShelterAnimalItem} item 유기동물 API 응답 항목
- * @return {string | null} popfile URL 또는 없으면 null
- */
-function getPopfileUrl(item: ShelterAnimalItem): string | null {
-  const val = item.popfile ?? item.popfile1;
-  if (!val || typeof val !== "string") return null;
-  const trimmed = val.trim();
-  return trimmed.startsWith("http") ? trimmed : null;
 }
 
 /**
@@ -145,10 +136,9 @@ async function runSyncCore(
       const desertionNo = String(item.desertionNo ?? "").trim();
       const careRegNo = String(item.careRegNo ?? "").trim();
       if (!desertionNo || !careRegNo) continue;
-      const docId = `${desertionNo}-${careRegNo}`;
-      const imageUrl = getPopfileUrl(item);
-      if (!imageUrl) continue;
-      candidates.push({docId, item, imageUrl});
+      for (const image of getAnimalImages(item)) {
+        candidates.push({...image, item});
+      }
     }
 
     console.info(
@@ -168,7 +158,14 @@ async function runSyncCore(
         .slice(i, i + FETCH_BATCH_SIZE)
         .map(({docId}) => docId);
       const response = await index.fetch({ids});
-      for (const id of Object.keys(response.records)) existingIds.add(id);
+      for (const candidate of candidates.slice(i, i + FETCH_BATCH_SIZE)) {
+        const metadata = response.records[candidate.docId]?.metadata;
+        if (metadata?.imageUrl === candidate.imageUrl &&
+            metadata?.sourceUpdatedAt === String(candidate.item.updTm ?? "") &&
+            metadata?.upKindCd === String(candidate.item.upKindCd ?? "")) {
+          existingIds.add(candidate.docId);
+        }
+      }
     }
     toEmbed = candidates.filter(({docId}) => !existingIds.has(docId));
     skippedExisting = candidates.length - toEmbed.length;
@@ -186,6 +183,7 @@ async function runSyncCore(
       imageUrl: string;
       upKindCd: string;
       orgNm: string;
+      sourceUpdatedAt: string;
     };
   }> = [];
 
@@ -202,6 +200,7 @@ async function runSyncCore(
             desertionNo: String(item.desertionNo ?? ""),
             careRegNo: String(item.careRegNo ?? ""),
             imageUrl,
+            sourceUpdatedAt: String(item.updTm ?? ""),
             upKindCd: String(item.upKindCd ?? ""),
             orgNm: String(item.orgNm ?? ""),
           },
@@ -227,7 +226,7 @@ async function runSyncCore(
       recordsToUpsert.length = 0;
     }
 
-    if (i + CHUNK_SIZE < toEmbed.length) {
+    if ((i + 1) % 5 === 0 && i + CHUNK_SIZE < toEmbed.length) {
       await delay(DELAY_BETWEEN_CHUNKS_MS);
     }
   }

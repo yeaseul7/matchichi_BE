@@ -7,7 +7,9 @@
     "start": "node lib/api/server.js",
     "start:cloudrun": "node lib/api/server.js",
     "migrate:boards": "node lib/scripts/runMigrateBoardsToSupabase.js",
-    "evaluate:text-search": "node lib/scripts/evaluateTextSearch.js"
+    "evaluate:text-search": "node lib/scripts/evaluateTextSearch.js",
+    "test": "npm run build && node --test lib/tests/*.test.js",
+    "evaluate:image-search": "node lib/scripts/evaluateImageSearch.js"
   },
   "engines": {
     "node": "24"
@@ -20,7 +22,8 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.0",
     "firebase-admin": "^13.8.0",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
     "@types/express": "^4.17.25",

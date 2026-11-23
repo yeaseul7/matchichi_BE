@@ -4,6 +4,7 @@ import {
   parseShelterItemList,
   SHELTER_API_PAGE_SIZE,
 } from "../shared/shelterAnimalApi.js";
+import {getAnimalImages} from "../shared/animalImages.js";
 import {PINECONE_INDEX_NAME} from "../shared/imageEmbedding.js";
 import {
   observeStaleCandidates,
@@ -72,6 +73,7 @@ async function fetchCurrentAnimalIds(
       const careRegNo = String(item.careRegNo ?? "").trim();
       if (!desertionNo || !careRegNo) continue;
       ids.add(`${desertionNo}-${careRegNo}`);
+      for (const image of getAnimalImages(item)) ids.add(image.docId);
     }
 
     console.info(

@@ -1,0 +1,78 @@
+{
+  "downloadedModelCache": {
+    "measuredAt": "2026-11-03T05:12:47.870Z",
+    "node": "v24.22.2",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "logicalCpus": 10,
+    "model": "Xenova/dinov2-small",
+    "sample": "https://raw.githubusercontent.com/pytorch/hub/master/images/dog.jpg",
+    "imageBytes": 661378,
+    "imageEmbeddingDim": 384,
+    "imageEmbeddingNorm": 1,
+    "imageConcurrency": 1,
+    "modelLoadIncludingDownloadMs": 15472.5,
+    "firstInferenceMs": 76.7,
+    "warmSamples": 10,
+    "warmP50Ms": 58.9,
+    "warmP95Ms": 62.7,
+    "twoSimultaneousRequestsMs": 117.4,
+    "rssBeforeMiB": 102.5,
+    "imageRssMiB": 488.8,
+    "textLoadAndInferenceIncludingDownloadMs": 22376.3,
+    "imageAndTextRssMiB": 885.4,
+    "sampledPeakRssMiB": 885.4,
+    "processPeakRssMiB": 885.4,
+    "scope": "Local macOS ARM64 inference only; not Cloud Run or retrieval accuracy"
+  },
+  "preloadedModelCache": {
+    "measuredAt": "2026-11-03T05:13:07.906Z",
+    "node": "v24.22.2",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "logicalCpus": 10,
+    "model": "Xenova/dinov2-small",
+    "sample": "https://raw.githubusercontent.com/pytorch/hub/master/images/dog.jpg",
+    "imageBytes": 661378,
+    "imageEmbeddingDim": 384,
+    "imageEmbeddingNorm": 1,
+    "imageConcurrency": 1,
+    "modelLoadIncludingDownloadMs": 83.8,
+    "firstInferenceMs": 77.2,
+    "warmSamples": 10,
+    "warmP50Ms": 62.3,
+    "warmP95Ms": 104.7,
+    "twoSimultaneousRequestsMs": 119.6,
+    "rssBeforeMiB": 103.2,
+    "imageRssMiB": 477.5,
+    "textLoadAndInferenceIncludingDownloadMs": 352.6,
+    "imageAndTextRssMiB": 892.3,
+    "sampledPeakRssMiB": 892.3,
+    "processPeakRssMiB": 892.3,
+    "scope": "Local macOS ARM64 inference only; not Cloud Run or retrieval accuracy"
+  },
+  "runtimeArchive": {
+    "filename": "node-v24.22.2-darwin-arm64.tar.gz",
+    "sha256": "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a",
+    "source": "https://nodejs.org/dist/latest-v24.x/",
+    "officialChecksumVerified": true
+  },
+  "httpSmoke": {
+    "health": 200,
+    "missingInput": 400,
+    "invalidImage": 400,
+    "oversizedFile": 413,
+    "publicImageDownloadBytes": 661378
+  },
+  "checks": {
+    "typescript": "passed",
+    "eslint": "passed",
+    "unitTestsPassed": 10
+  },
+  "unverified": [
+    "Cloud Run deployment and resource settings",
+    "Pinecone and Supabase integration against real records",
+    "Retrieval accuracy on labelled dog photos",
+    "Linux container build"
+  ]
+}

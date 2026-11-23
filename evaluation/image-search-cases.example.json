@@ -1,0 +1,7 @@
+[
+  {
+    "name": "측면 사진으로 정면 등록 사진 검색",
+    "imagePath": "photos/query-side.jpg",
+    "expectedDesertionNos": ["실제_공고_번호로_교체"]
+  }
+]
