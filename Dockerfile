@@ -11,12 +11,14 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-RUN npm ci
+# CPU 배포에서는 불필요한 CUDA 바이너리를 다운로드하지 않습니다.
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci
 
 COPY tsconfig*.json ./
 COPY src ./src
 
-RUN npm run build
+COPY .eslintrc.js ./
+RUN npm run lint && npm test
 
 # Preload the image embedding model so Cloud Run does not download it on cold start.
 RUN node --input-type=module -e "import {pipeline} from '@huggingface/transformers'; await pipeline('image-feature-extraction', 'Xenova/dinov2-small');"

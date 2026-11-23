@@ -409,12 +409,35 @@ cat sql/create_comment_likes.sql
 
 ## Docker / Cloud Run
 
-이미지 빌드:
+배포는 맥에서 Docker로 빌드하고 Artifact Registry에 업로드한 뒤 Cloud Run에
+이미지를 지정하는 방식입니다. Cloud Build는 호출하지 않습니다.
+기존 `main` 자동 빌드 트리거는 사용 중지합니다.
+
+Docker Desktop과 Google Cloud CLI를 설치하고, 배포 권한이 있는 계정으로 로그인합니다.
 
 ```bash
-docker build -t kkosunnae-backend .
-docker run --rm -p 8080:8080 --env-file .env kkosunnae-backend
+gcloud auth login --project dog-velog
+npm run deploy:local
 ```
+
+CLI가 PATH에 없으면 `~/google-cloud-sdk/bin/gcloud`도 확인합니다.
+다른 위치의 CLI는 `GCLOUD_BIN`으로 지정할 수 있습니다.
+
+배포 명령은 자동 트리거가 꺼져 있는지 확인한 뒤 `linux/amd64` 이미지 빌드,
+로컬 `/health` 검증, Registry 업로드를 순서대로 실행합니다. 트래픽 없는 새 리비전을
+만들어 `/health`를 확인한 후 운영 트래픽을 전환합니다. 기존 자원·환경변수는
+유지합니다. 빌드 안에서 Node 24 린트·테스트를 실행하며, CPU 서버에 필요 없는
+ONNX CUDA 파일 다운로드는 제외합니다.
+
+이미지 빌드만 확인하려면:
+
+```bash
+docker buildx build --platform linux/amd64 --load -t kkosunnae-backend .
+docker run --platform linux/amd64 --rm -p 8080:8080 --env-file .env kkosunnae-backend
+```
+
+Cloud Build 빌드 비용은 발생하지 않지만 Artifact Registry 저장·전송 및
+Cloud Run 실행 비용은 별도입니다.
 
 Docker 빌드 과정에서 DINOv2와 양자화된 multilingual-e5-small 모델을 미리
 내려받아 Cloud Run cold start 시 다운로드를 줄입니다. 런타임 이미지는

@@ -9,7 +9,8 @@
     "migrate:boards": "node lib/scripts/runMigrateBoardsToSupabase.js",
     "evaluate:text-search": "node lib/scripts/evaluateTextSearch.js",
     "test": "npm run build && node --test lib/tests/*.test.js",
-    "evaluate:image-search": "node lib/scripts/evaluateImageSearch.js"
+    "evaluate:image-search": "node lib/scripts/evaluateImageSearch.js",
+    "deploy:local": "bash scripts/deploy-local.sh"
   },
   "engines": {
     "node": "24"
