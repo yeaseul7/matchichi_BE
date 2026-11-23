@@ -1,4 +1,4 @@
-# kkosunnae-backend
+# matchichi_BE
 
 유기동물 공공데이터를 Supabase와 Pinecone에 동기화하고, 이미지 기반 유사 동물 검색과 게시판 이미지 업로드를 제공하는 Node.js 백엔드입니다. Express 서버로 실행되며 Google Cloud Run 배포를 기준으로 구성되어 있습니다.
 
