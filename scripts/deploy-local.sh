@@ -18,16 +18,21 @@ project=dog-velog
 region=asia-northeast3
 service=kkosunnae-backend
 trigger=4f9b562f-83cc-4f8b-a0eb-380e3fc43770
-disabled=$("$gcloud" builds triggers describe "$trigger" \
-  --region=global --project="$project" --format='value(disabled)')
-if [[ "$disabled" != "True" && "$disabled" != "true" ]]; then
-  echo "Cloud Build 자동 트리거를 먼저 사용 중지하세요: $trigger" >&2
-  exit 1
+if [[ "${GITHUB_ACTIONS:-false}" != "true" ]]; then
+  disabled=$("$gcloud" builds triggers describe "$trigger" \
+    --region=global --project="$project" --format='value(disabled)')
+  if [[ "$disabled" != "True" && "$disabled" != "true" ]]; then
+    echo "Cloud Build 자동 트리거를 먼저 사용 중지하세요: $trigger" >&2
+    exit 1
+  fi
 fi
 
-image="$region-docker.pkg.dev/$project/cloud-run-source-deploy/$service/$service"
-image="$image:local-$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
-docker buildx build --platform linux/amd64 --load --tag "$image" .
+image="${1:-}"
+if [[ -z "$image" ]]; then
+  image="$region-docker.pkg.dev/$project/cloud-run-source-deploy/$service/$service"
+  image="$image:local-$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
+  docker buildx build --platform linux/amd64 --load --tag "$image" .
+fi
 
 container=$(docker run --platform linux/amd64 --detach --rm "$image")
 cleanup() { docker stop "$container" >/dev/null 2>&1 || true; }

@@ -409,9 +409,22 @@ cat sql/create_comment_likes.sql
 
 ## Docker / Cloud Run
 
-배포는 맥에서 Docker로 빌드하고 Artifact Registry에 업로드한 뒤 Cloud Run에
-이미지를 지정하는 방식입니다. Cloud Build는 호출하지 않습니다.
-기존 `main` 자동 빌드 트리거는 사용 중지합니다.
+`main`에 푸시하면 GitHub Actions의 기본 Ubuntu 러너에서 Docker 이미지를 빌드하고,
+Artifact Registry 업로드와 Cloud Run 배포를 자동으로 수행합니다. 맥이 꺼져 있어도
+배포됩니다. 공개 저장소의 기본 러너를 사용하며 별도 Actions artifact/cache는
+저장하지 않습니다. Cloud Build 자동 트리거는 사용 중지 상태를 유지합니다.
+
+워크플로는 `.github/workflows/deploy.yml`이며 Actions에서 수동 실행도 가능합니다.
+배포는 순차 실행하고, 트래픽 없는 새 리비전의 `/health`가 정상일 때만 운영
+트래픽을 전환합니다. Docker 빌드 안에서 Node 24 린트·테스트를 실행합니다.
+
+GCP 인증은 Workload Identity Federation으로 일회성 자격증명을 발급합니다.
+GitHub 저장소 ID·소유자 ID·`main`·배포 워크플로·push/수동 실행을 모두 제한하고,
+전용 `github-deploy` 계정은 해당 이미지 저장소와 Cloud Run 서비스에만 배포 권한을
+가집니다. 장기 서비스 계정 키를 GitHub Secrets에 저장하지 않습니다.
+인증 파일 `gha-creds-*.json`은 Git과 Docker 빌드 컨텍스트에서 제외합니다.
+
+아래 명령은 필요할 때 로컬에서 수동 배포하는 대안입니다.
 
 Docker Desktop과 Google Cloud CLI를 설치하고, 배포 권한이 있는 계정으로 로그인합니다.
 

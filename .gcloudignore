@@ -8,5 +8,6 @@
 *serviceAccount*.json
 dog-velog-*.json
 node_modules
+gha-creds-*.json
 lib
 npm-debug.log*

@@ -1,0 +1,46 @@
+name: Deploy Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-run-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'yeaseul7/kkosunnae-backend' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: asia-northeast3-docker.pkg.dev/dog-velog/cloud-run-source-deploy/kkosunnae-backend/kkosunnae-backend:${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # 빌드를 먼저 끝내 GitHub OIDC 인증의 만료 시간을 아낍니다.
+      - name: Build and test image
+        run: docker build --platform linux/amd64 --tag "$IMAGE" .
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: dog-velog
+          workload_identity_provider: projects/258374777454/locations/global/workloadIdentityPools/github-deploy/providers/kkosunnae-main
+          service_account: github-deploy@dog-velog.iam.gserviceaccount.com
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - name: Push and deploy image
+        run: bash scripts/deploy-local.sh "$IMAGE"
